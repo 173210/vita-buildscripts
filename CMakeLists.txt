@@ -71,10 +71,12 @@ function(toolchain_deps toolchain_deps_dir toolchain_install_dir toolchain_suffi
         list(GET extra_macro_args 0 toolchain_file)
     endif()
 
+    set(toolchain_cmake_args -DCMAKE_PREFIX_PATH=${toolchain_deps_dir})
+
     if(toolchain_file)
         # Use the host triplet when crosscompiling
         set(toolchain_host ${host_native})
-        set(toolchain_cmake_args -DCMAKE_TOOLCHAIN_FILE=${toolchain_file})
+        list(APPEND toolchain_cmake_args -DCMAKE_TOOLCHAIN_FILE=${toolchain_file})
         # Workaround for libelf configure step (doesn't detect the toolchain)
         set(cc_compiler "${host_native}-gcc")
         set(ranlib "${host_native}-ranlib")
@@ -118,10 +120,8 @@ function(toolchain_deps toolchain_deps_dir toolchain_install_dir toolchain_suffi
         list(APPEND toolchain_cmake_args -DUSE_BUNDLED_ENDIAN_H=ON)
     endif()
 
-    if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows" AND (host_native STREQUAL build_native OR toolchain_file))
-        list(APPEND toolchain_cmake_args -DBUILD_SHARED_LIBS=ON)
-    else()
-        list(APPEND toolchain_cmake_args -DBUILD_SHARED_LIBS=OFF)
+    if(NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Windows" OR (NOT host_native STREQUAL build_native AND toolchain_file))
+        set(libyaml_cflags -fPIC)
     endif()
 
     ExternalProject_Add(libzip${suffix}
@@ -132,8 +132,6 @@ function(toolchain_deps toolchain_deps_dir toolchain_install_dir toolchain_suffi
         PATCH_COMMAND patch -d <SOURCE_DIR> -p3 -t -N < ${PROJECT_SOURCE_DIR}/patches/libzip.patch
         CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${toolchain_deps_dir}
         ${toolchain_cmake_args} ${libzip_configure}
-        -DZLIB_INCLUDE_DIR=${toolchain_deps_dir}/include
-        -DZLIB_LIBRARY=${toolchain_deps_dir}/lib/libz.a
         )
 
     ExternalProject_add(libelf${suffix}
@@ -161,7 +159,7 @@ function(toolchain_deps toolchain_deps_dir toolchain_install_dir toolchain_suffi
         --libdir=${toolchain_deps_dir}/lib
         --disable-shared
         --enable-static
-        "CFLAGS=-DYAML_DECLARE_STATIC"
+        "CFLAGS=-DYAML_DECLARE_STATIC ${libyaml_cflags}"
         )
 
     ExternalProject_add(gmp${suffix}
@@ -239,16 +237,7 @@ function(toolchain_deps toolchain_deps_dir toolchain_install_dir toolchain_suffi
         GIT_REPOSITORY https://github.com/vitasdk/vita-toolchain
         GIT_TAG ${TOOLCHAIN_TAG}
         # Set prefix to "/" here to be able to install twice
-        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=/ ${toolchain_cmake_args}
-        -Dlibelf_INCLUDE_DIR=${toolchain_deps_dir}/include
-        -Dlibelf_LIBRARY=${toolchain_deps_dir}/lib/libelf.a
-        -Dzlib_INCLUDE_DIR=${toolchain_deps_dir}/include
-        -Dzlib_LIBRARY=${toolchain_deps_dir}/lib/libz.a
-        -Dlibzip_INCLUDE_DIR=${toolchain_deps_dir}/include
-        -Dlibzip_CONFIG_INCLUDE_DIR=${toolchain_deps_dir}/lib/libzip/include
-        -Dlibzip_LIBRARY=${toolchain_deps_dir}/lib/libzip.a
-        -Dlibyaml_INCLUDE_DIR=${toolchain_deps_dir}/include
-        -Dlibyaml_LIBRARY=${toolchain_deps_dir}/lib/libyaml.a
+        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=/ -DBUILD_SHARED_LIBS=ON ${toolchain_cmake_args}
         BUILD_COMMAND $(MAKE)
         INSTALL_COMMAND $(MAKE) install DESTDIR=${toolchain_install_dir}
         # Save the commit id for tracking purposes
